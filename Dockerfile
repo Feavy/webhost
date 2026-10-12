@@ -22,9 +22,13 @@ LABEL org.opencontainers.image.title="nginx-git-static" \
 RUN apk add --no-cache git openssh-client ca-certificates coreutils \
  && rm -rf /var/cache/apk/*
 
-# Serve on 8080 from the atomically swapped "current" symlink.
+# Serve on 8080 from the atomically swapped "current" symlink. The `location /`
+# fallback is not static -- it depends on SPA -- so it is included from a snippet
+# the entrypoint rewrites at startup. The copy here is the SPA=0 default: it
+# keeps the image's own config valid when nginx is run without the entrypoint.
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY nginx/routing.conf /etc/nginx/webhost/routing.conf
 
 # Page shown until the very first release is published.
 COPY bootstrap/ /usr/share/webhost/bootstrap/
@@ -32,7 +36,7 @@ COPY bootstrap/ /usr/share/webhost/bootstrap/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Set modes explicitly so the image does not depend on the build host's umask.
-RUN chmod 0644 /etc/nginx/conf.d/default.conf /usr/share/webhost/bootstrap/* \
+RUN chmod 0644 /etc/nginx/conf.d/default.conf /etc/nginx/webhost/routing.conf /usr/share/webhost/bootstrap/* \
  && chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
 ENV PULL_INTERVAL=30s \
@@ -40,7 +44,8 @@ ENV PULL_INTERVAL=30s \
     WORK_DIR=/var/www/repo \
     RELEASES_DIR=/var/www/releases \
     CURRENT_LINK=/var/www/current \
-    BOOTSTRAP_DIR=/var/www/bootstrap
+    BOOTSTRAP_DIR=/var/www/bootstrap \
+    SPA=0
 
 EXPOSE 8080
 

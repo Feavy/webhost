@@ -25,6 +25,8 @@ services:
       # Prefer a mounted key (see volumes below) over passing it in the env.
       SSH_PRIVATE_KEY: "${SSH_PRIVATE_KEY:-}"
       KEEP_RELEASES: "${KEEP_RELEASES:-3}"
+      # 1 serves index.html for paths that match no file (client-side routing).
+      SPA: "${SPA:-0}"
     # volumes:
     #   # Mount the deploy key read-only instead of using SSH_PRIVATE_KEY.
     #   # The file must be mode 0600 on the host: chmod 600 deploy_key

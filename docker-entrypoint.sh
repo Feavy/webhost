@@ -23,6 +23,8 @@
 #   RELEASES_DIR     (default: /var/www/releases) immutable releases
 #   CURRENT_LINK     (default: /var/www/current)  atomically swapped symlink
 #   BOOTSTRAP_DIR    (default: /var/www/bootstrap) page served until 1st deploy
+#   SPA              (default: 0) serve index.html for paths that match no file
+#   ROUTING_CONF     (default: /etc/nginx/webhost/routing.conf) generated try_files
 #   KEEP_RELEASES    (default: 3)                 old releases kept on disk
 #   GIT_DEPTH        (default: 1)
 #   SSH_KEY_PATH     (default: $HOME/.ssh/id_deploy)
@@ -48,6 +50,7 @@ RELEASES_DIR="${RELEASES_DIR:-/var/www/releases}"
 CURRENT_LINK="${CURRENT_LINK:-/var/www/current}"
 BOOTSTRAP_DIR="${BOOTSTRAP_DIR:-/var/www/bootstrap}"
 BOOTSTRAP_SRC="${BOOTSTRAP_SRC:-/usr/share/webhost/bootstrap}"
+ROUTING_CONF="${ROUTING_CONF:-/etc/nginx/webhost/routing.conf}"
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
 GIT_DEPTH="${GIT_DEPTH:-1}"
 MAX_FAILURES_BEFORE_RESET="${MAX_FAILURES_BEFORE_RESET:-5}"
@@ -79,6 +82,7 @@ require_abs_path "$WORK_DIR" WORK_DIR
 require_abs_path "$RELEASES_DIR" RELEASES_DIR
 require_abs_path "$CURRENT_LINK" CURRENT_LINK
 require_abs_path "$BOOTSTRAP_DIR" BOOTSTRAP_DIR
+require_abs_path "$ROUTING_CONF" ROUTING_CONF
 [ -n "$REPOSITORY" ] || die "REPOSITORY is required, e.g. -e REPOSITORY=git@github.com:Feavy/CloudDesktop.git"
 
 # The branch is always watched through one deterministic remote-tracking ref:
@@ -120,6 +124,17 @@ case "$GIT_DEPTH" in
   ''|*[!0-9]*) GIT_DEPTH=1 ;;
 esac
 [ "$GIT_DEPTH" -ge 1 ] || GIT_DEPTH=1
+
+# SPA is a boolean: 1/true/yes/on enable the index.html fallback used by
+# client-side routers; 0/false/no/off (or unset) keep 404 for unknown paths.
+case "$(printf '%s' "${SPA:-}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) SPA=1 ;;
+  ''|0|false|no|off) SPA=0 ;;
+  *)
+    warn "invalid SPA '${SPA:-}': expected a boolean (1/0, true/false, yes/no, on/off), falling back to 0"
+    SPA=0
+    ;;
+esac
 
 # ------------------------------------------------------------------ git setup
 
@@ -294,6 +309,29 @@ deploy_once() {
   return 0
 }
 
+# --------------------------------------------------------------- nginx config
+
+# The only part of the server block that depends on the environment is what
+# happens when a path matches no file, so it lives in its own snippet that
+# nginx/default.conf includes from `location /`. Rewriting that one line at
+# startup keeps the server block static and reviewable, and lets `nginx -t`
+# validate the result before nginx is started.
+configure_routing() {
+  _fallback='=404'
+  if [ "$SPA" = "1" ]; then
+    _fallback='/index.html'
+  fi
+  mkdir -p "$(dirname "$ROUTING_CONF")" 2>/dev/null || true
+  if ! printf '# Generated from SPA=%s by docker-entrypoint.sh -- do not edit.\ntry_files $uri $uri/ %s;\n' \
+       "$SPA" "$_fallback" > "$ROUTING_CONF" 2>/dev/null; then
+    die "cannot write the nginx routing snippet to $ROUTING_CONF (set ROUTING_CONF to a writable path)"
+  fi
+  chmod 0644 "$ROUTING_CONF" 2>/dev/null || true
+  if [ "$SPA" = "1" ]; then
+    log "SPA=1: paths that match no file fall back to /index.html"
+  fi
+}
+
 prepare_bootstrap() {
   mkdir -p "$RELEASES_DIR"
   if [ -L "$CURRENT_LINK" ]; then
@@ -333,6 +371,7 @@ run_loop() {
 }
 
 main() {
+  configure_routing
   setup_git
   setup_ssh
   prepare_bootstrap

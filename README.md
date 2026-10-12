@@ -103,6 +103,8 @@ organization-level policy can restrict whether a workflow may request it.
 | `RELEASES_DIR` | `/var/www/releases` | Immutable release directories |
 | `CURRENT_LINK` | `/var/www/current` | Symlink nginx serves from |
 | `BOOTSTRAP_DIR` | `/var/www/bootstrap` | Page served until the first release |
+| `SPA` | `0` | `1` serves `index.html` for paths that match no file (client-side routing) |
+| `ROUTING_CONF` | `/etc/nginx/webhost/routing.conf` | `try_files` snippet included by `location /`; rewritten from `SPA` at startup |
 | `KEEP_RELEASES` | `3` | Releases kept on disk (newest first) |
 | `GIT_DEPTH` | `1` | Fetch depth |
 | `SSH_KEY_PATH` | `$HOME/.ssh/id_deploy` | Where `SSH_PRIVATE_KEY` is written / read from |
@@ -165,8 +167,9 @@ sh test/smoke.sh
 It covers: depth-1/bare state, subdirectory extraction, absence of git metadata
 in the served tree, publish + prune of releases, atomic swaps while 60 reads run
 against three commits landing underneath, `PULL_INTERVAL` parsing, rejection of a
-missing `REPOSITORY`, failure on an unreachable remote, remote URL changes, and
-SSH key installation from both the environment and a mount.
+missing `REPOSITORY`, failure on an unreachable remote, remote URL changes, SPA
+routing snippet generation (including invalid boolean values), and SSH key
+installation from both the environment and a mount.
 
 ## Notes and limits
 
@@ -174,8 +177,17 @@ SSH key installation from both the environment and a mount.
   CI and push the output to a branch (for example `gh-pages`) if you need a build
   step; this image deliberately has no toolchain.
 * **Polling, not webhooks** — propagation is bounded by `PULL_INTERVAL`.
-* **SPA routing** — the default config returns 404 for unknown paths. For
-  client-side routing, mount a config that falls back to `index.html`:
+* **SPA routing** — with `SPA=1`, a path that matches no file serves
+  `index.html` (HTTP 200), so deep links into a client-side router work:
+
+  ```sh
+  docker run -d -p 8080:8080 -e SPA=1 ... nginx-git-static
+  ```
+
+  A missing *asset* (a path ending in `.css`, `.js`, `.png`, …) still returns
+  `404`, so a stale bundle reference does not silently hide behind the shell.
+  The fallback is compiled into `ROUTING_CONF` at startup; to customise routing
+  further, mount your own config over `/etc/nginx/conf.d/default.conf`:
 
   ```sh
   docker run -d -p 8080:8080 \

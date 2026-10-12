@@ -65,6 +65,7 @@ run_deploy() {
     CURRENT_LINK="$STATE/current" \
     BOOTSTRAP_DIR="$STATE/bootstrap" \
     BOOTSTRAP_SRC="$ROOT/bootstrap" \
+    ROUTING_CONF="$STATE/routing.conf" \
     "$@" \
     sh "$ENTRYPOINT"
 }
@@ -157,6 +158,7 @@ timeout --kill-after=2 30 env \
   CURRENT_LINK="$WATCH/current" \
   BOOTSTRAP_DIR="$WATCH/bootstrap" \
   BOOTSTRAP_SRC="$ROOT/bootstrap" \
+  ROUTING_CONF="$WATCH/routing.conf" \
   PATH="$STUB:$PATH" \
   sh "$ENTRYPOINT" > "$WORK/watch.log" 2>&1 &
 WATCH_PID=$!
@@ -216,6 +218,44 @@ if run_deploy \
 else
   ok "an unreachable remote is a failure"
 fi
+
+section "spa routing"
+# The default (SPA unset) must keep returning 404 for unknown paths.
+grep -Fq 'try_files $uri $uri/ =404;' "$STATE/routing.conf" \
+  && ok "the default routing snippet 404s unknown paths" || bad "the default routing snippet 404s unknown paths"
+grep -Fq 'include /etc/nginx/webhost/routing.conf;' "$ROOT/nginx/default.conf" \
+  && ok "default.conf includes the generated routing snippet" || bad "default.conf includes the generated routing snippet"
+
+if run_deploy SPA=1 ROUTING_CONF="$STATE/spa/routing.conf" > "$WORK/log-spa1" 2>&1; then
+  ok "a deploy with SPA=1 exits 0"
+else
+  bad "a deploy with SPA=1 exits 0"
+  cat "$WORK/log-spa1"
+fi
+grep -Fq 'try_files $uri $uri/ /index.html;' "$STATE/spa/routing.conf" \
+  && ok "SPA=1 falls back to /index.html" || bad "SPA=1 falls back to /index.html"
+grep -q "SPA=1" "$WORK/log-spa1" && ok "the SPA fallback is logged" || bad "the SPA fallback is logged"
+
+run_deploy SPA=0 ROUTING_CONF="$STATE/plain/routing.conf" > "$WORK/log-spa0" 2>&1 \
+  || bad "a deploy with SPA=0 exits 0"
+grep -Fq 'try_files $uri $uri/ =404;' "$STATE/plain/routing.conf" \
+  && ok "SPA=0 keeps 404 for unknown paths" || bad "SPA=0 keeps 404 for unknown paths"
+
+# Booleans are accepted in the usual spellings, case-insensitively.
+for value in true TRUE Yes on; do
+  run_deploy SPA="$value" ROUTING_CONF="$STATE/bool/routing.conf" > /dev/null 2>&1 || true
+  grep -Fq '/index.html;' "$STATE/bool/routing.conf" \
+    && ok "SPA=$value enables the fallback" || bad "SPA=$value enables the fallback"
+done
+
+if run_deploy SPA=maybe ROUTING_CONF="$STATE/bad/routing.conf" > "$WORK/log-spabad" 2>&1; then
+  ok "an invalid SPA value is tolerated"
+else
+  bad "an invalid SPA value is tolerated"
+fi
+grep -q "invalid SPA" "$WORK/log-spabad" && ok "an invalid SPA value warns" || bad "an invalid SPA value warns"
+grep -Fq 'try_files $uri $uri/ =404;' "$STATE/bad/routing.conf" \
+  && ok "an invalid SPA value falls back to 404" || bad "an invalid SPA value falls back to 404"
 
 section "changing REPOSITORY is honoured"
 SRC2="$WORK/other.git"
