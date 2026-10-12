@@ -11,6 +11,9 @@ services:
       context: .
       args:
         NGINX_IMAGE: nginx:stable-alpine
+    # Built locally and tagged nginx-git-static:latest. To use the image CI
+    # publishes to GHCR instead, drop `build:` above and pull
+    # ghcr.io/feavy/webhost:latest (see README, "Published image").
     image: nginx-git-static:latest
     restart: unless-stopped
     ports:

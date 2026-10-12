@@ -1,0 +1,108 @@
+name: Build and push image
+
+# Build the nginx-git-static image and publish it to this project's GitHub
+# Container Registry namespace: ghcr.io/<owner>/<repo> (lowercased), e.g.
+# ghcr.io/feavy/webhost.
+#
+# Authentication uses the workflow's own GITHUB_TOKEN -- no extra secrets to
+# configure. The token is granted `packages: write` below, which is the
+# permission that authorises pushes to GHCR.
+#
+#   push to main / version tag -> build (amd64 + arm64) and push
+#   pull request               -> build only, never push (and never log in)
+#   manual dispatch            -> same as a push to the selected ref
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A superseded run on the same branch is pointless: cancel it. Tag pushes are
+# never cancelled, so a release publish cannot be interrupted halfway through.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # The image's deploy engine is covered by a Docker-free smoke test, so it can
+  # gate publishing without needing privileged containers in CI.
+  test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Run entrypoint smoke test
+        run: sh test/smoke.sh
+
+  build:
+    name: Build and push to GHCR
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # GHCR/Docker image references must be lowercase, while a GitHub repository
+      # name may contain uppercase letters. metadata-action sanitises the name too,
+      # but deriving it once here keeps the value usable in later steps as well.
+      - name: Compute image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # arm64 is built under emulation; QEMU must be registered before buildx.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Pull requests from forks get a read-only token, so they build but the
+      # push step below stays disabled for every pull request.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NGINX_IMAGE=${{ vars.NGINX_IMAGE || 'nginx:stable-alpine' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -50,6 +50,47 @@ SSH_PRIVATE_KEY="$(cat ~/.ssh/id_ed25519)" \
 docker compose up --build
 ```
 
+## Published image
+
+`.github/workflows/docker-publish.yml` builds this image and pushes it to the
+project's GitHub Container Registry namespace, `ghcr.io/feavy/webhost`. It
+authenticates with the workflow's own `GITHUB_TOKEN` (`packages: write`), so no
+extra secrets are required.
+
+| Event | Result |
+| --- | --- |
+| Push to `main` | Build (amd64 + arm64) and push, tagged `main`, `latest`, `sha-<commit>` |
+| Push of a `v*` tag | Push, tagged `v1.2.3`, `1.2.3`, `1.2`, `latest`, `sha-<commit>` |
+| Pull request | Build only — never logs in or pushes |
+| Manual dispatch | Same as a push to the selected ref |
+
+The Docker-free smoke test (`test/smoke.sh`) runs first and gates the publish.
+
+```sh
+docker pull ghcr.io/feavy/webhost:latest
+
+docker run -d -p 8080:8080 \
+  -e REPOSITORY=git@github.com:Feavy/CloudDesktop.git \
+  -e SSH_PRIVATE_KEY="$(cat ~/.ssh/id_ed25519)" \
+  ghcr.io/feavy/webhost:latest
+```
+
+Packages pushed with `GITHUB_TOKEN` start out **private**. To allow anonymous
+pulls, set the package to public under the repository's Packages → *webhost* →
+Package settings → Danger zone → Change visibility. On a private package, pull
+with a token that has `read:packages`:
+
+```sh
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+```
+
+The repository variable `NGINX_IMAGE` can override the base image without
+editing the workflow; it defaults to `nginx:stable-alpine`.
+
+If a push is rejected with `403 Forbidden`, check Settings → Actions → General →
+Workflow permissions: the workflow already requests `packages: write`, but an
+organization-level policy can restrict whether a workflow may request it.
+
 ## Variables
 
 | Variable | Default | Purpose |
