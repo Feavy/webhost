@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="5">
+    <title>Deploying…</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f1115;
+        color: #e6e6e6;
+        font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { text-align: center; padding: 2rem; }
+      h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 .5rem; }
+      p { margin: 0; color: #9aa0aa; font-size: .9rem; }
+      .dot {
+        width: .7rem; height: .7rem; border-radius: 50%;
+        background: #4c8dff; display: inline-block; margin-right: .5rem;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1><span class="dot"></span>First release is being fetched…</h1>
+      <p>This page is replaced automatically once the repository is deployed.</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+# Continuous static deployment from a git branch, served by nginx on 8080.
+#
+#   REPOSITORY=git@github.com:Feavy/CloudDesktop.git \
+#   BRANCH=main \
+#   SSH_PRIVATE_KEY="$(cat ~/.ssh/id_ed25519)" \
+#   docker compose up --build
+#
+services:
+  static:
+    build:
+      context: .
+      args:
+        NGINX_IMAGE: nginx:stable-alpine
+    image: nginx-git-static:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      REPOSITORY: "${REPOSITORY:?set REPOSITORY, e.g. git@github.com:Feavy/CloudDesktop.git}"
+      BRANCH: "${BRANCH:-main}"
+      PULL_INTERVAL: "${PULL_INTERVAL:-30s}"
+      # Prefer a mounted key (see volumes below) over passing it in the env.
+      SSH_PRIVATE_KEY: "${SSH_PRIVATE_KEY:-}"
+      KEEP_RELEASES: "${KEEP_RELEASES:-3}"
+    # volumes:
+    #   # Mount the deploy key read-only instead of using SSH_PRIVATE_KEY.
+    #   # The file must be mode 0600 on the host: chmod 600 deploy_key
+    #   - ./deploy_key:/root/.ssh/id_deploy:ro
+    #   # Persist fetched state and releases across container recreation.
+    #   - webhost-state:/var/www
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+# volumes:
+#   webhost-state:
